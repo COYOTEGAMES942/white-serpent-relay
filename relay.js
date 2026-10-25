@@ -12,6 +12,8 @@
 //   -> {t:'create', lobby:{name, mode, max}}            <- {t:'created', id}
 //   -> {t:'join', id}                                   <- {t:'joined', id, host}   (the host gets {t:'peer', ev:'join', id, name, platform})
 //   -> {t:'update', lobby:{...}}  (host)                -> {t:'to', to: id | 'host' | 'all', d}   <- {t:'msg', from, d}
+//   -> {t:'friendreq'|'friendok'|'frienddeny', fid}  <- the same to that player, {from:{fid,name}}; {t:'friendsent', ok}
+//   -> {t:'who', fids:[...]}                       <- {t:'presence', list:[{fid, name, lobby}]}
 //   -> {t:'leave'}                                      <- {t:'peer', ev:'leave', id}  /  {t:'closed'} when the host goes
 'use strict';
 const http = require('http'), crypto = require('crypto');
@@ -40,7 +42,18 @@ function createRelay(opts) {
     if (c.tokens < 1) { if (++c.drops > 2000) c.kill(); return; } c.tokens--;
     let m; try { m = JSON.parse(text); } catch (e) { return; }
     if (!m || typeof m.t !== 'string') return;
-    if (m.t === 'hello') { c.name = String(m.name || 'Player').slice(0, 24); c.platform = String(m.platform || '').slice(0, 12); send(c, { t: 'welcome', id: c.id }); }
+    if (m.t === 'hello') { c.name = String(m.name || 'Player').slice(0, 24); c.platform = String(m.platform || '').slice(0, 12); c.fid = String(m.fid || '').replace(/[^A-Z0-9]/gi, '').slice(0, 12).toUpperCase(); send(c, { t: 'welcome', id: c.id, friends: 1 }); }
+    // friends: requests and answers by friend code, and who of your friends is online (and hosting what)
+    else if (m.t === 'friendreq' || m.t === 'friendok' || m.t === 'frienddeny') {
+      const code = String(m.fid || '').toUpperCase(); let to = null; for (const o of clients.values()) if (o.fid && o.fid === code && o !== c) { to = o; break; }
+      if (to) send(to, { t: m.t, from: { fid: c.fid, name: c.name, platform: c.platform } });
+      if (m.t === 'friendreq') send(c, { t: 'friendsent', fid: code, ok: !!to, why: to ? '' : 'That player is not online right now.' });
+    }
+    else if (m.t === 'who') {
+      const want = new Set((m.fids || []).slice(0, 200).map(x => String(x).toUpperCase())), out = [];
+      for (const o of clients.values()) if (o.fid && want.has(o.fid)) { const L = o.lobby && lobbies.get(o.lobby); out.push({ fid: o.fid, name: o.name, platform: o.platform, lobby: L ? { id: L.id, name: L.name, open: L.open && !L.started, host: L.host === o.id } : null }); }
+      send(c, { t: 'presence', list: out });
+    }
     else if (m.t === 'list') send(c, { t: 'lobbies', list: [...lobbies.values()].map(pub) });
     else if (m.t === 'create') {
       if (lobbies.size >= MAX_LOBBIES) return send(c, { t: 'error', why: 'The server is full of lobbies just now. Try again soon.' });

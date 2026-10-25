@@ -1,0 +1,10 @@
+{
+  "name": "white-serpent-relay",
+  "version": "1.0.0",
+  "description": "The lobby relay for The White Serpent's multiplayer (no dependencies).",
+  "main": "relay.js",
+  "private": true,
+  "scripts": { "start": "node relay.js" },
+  "engines": { "node": ">=18" },
+  "license": "UNLICENSED"
+}
